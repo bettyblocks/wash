@@ -647,6 +647,8 @@ pub struct HostBuilder {
     labels: HashMap<String, String>,
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
     config: Option<HostConfig>,
+    #[cfg(feature = "grpc")]
+    grpc_config: Option<HashMap<String, String>>,
 }
 
 impl Default for HostBuilder {
@@ -660,6 +662,8 @@ impl Default for HostBuilder {
             labels: Default::default(),
             http_handler: Default::default(),
             config: Default::default(),
+            #[cfg(feature = "grpc")]
+            grpc_config: Default::default(),
         }
     }
 }
@@ -684,6 +688,12 @@ impl HostBuilder {
         self
     }
 
+    #[cfg(feature = "grpc")]
+    pub fn with_grpc(mut self, config: HashMap<String, String>) -> Self {
+        self.grpc_config = Some(config);
+        self
+    }
+
     pub fn with_plugin<T: HostPlugin>(mut self, plugin: Arc<T>) -> anyhow::Result<Self> {
         let plugin_id = plugin.id();
 
@@ -695,7 +705,6 @@ impl HostBuilder {
         self.plugins.insert(plugin_id, plugin);
         Ok(self)
     }
-
     /// Sets the hostname for this host.
     ///
     /// # Arguments
@@ -755,6 +764,11 @@ impl HostBuilder {
     /// # Errors
     /// Returns an error if the default engine cannot be created (when no engine is provided).
     pub fn build(self) -> anyhow::Result<Host> {
+        #[cfg(feature = "grpc")]
+        if let Some(config) = self.grpc_config {
+            crate::grpc::init_grpc(&config)?;
+        }
+
         let engine = if let Some(engine) = self.engine {
             engine
         } else {
