@@ -1,3 +1,5 @@
+#[cfg(feature = "grpc")]
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +39,8 @@ pub struct ClusterHostBuilder {
     host_name: Option<String>,
     heartbeat_interval: Option<Duration>,
     host_config: Option<HostConfig>,
+    #[cfg(feature = "grpc")]
+    grpc_config: Option<HashMap<String, String>>,
 }
 
 impl ClusterHostBuilder {
@@ -62,6 +66,12 @@ impl ClusterHostBuilder {
 
     pub fn with_nats_client(mut self, nats_client: Arc<async_nats::Client>) -> Self {
         self.nats_client = Some(nats_client);
+        self
+    }
+
+    #[cfg(feature = "grpc")]
+    pub fn with_grpc(mut self, config: HashMap<String, String>) -> Self {
+        self.grpc_config = Some(config);
         self
     }
 
