@@ -42,7 +42,7 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 #[allow(deprecated)]
 #[deprecated = "old media type used before Wasm WG standardization"]
