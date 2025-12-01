@@ -359,6 +359,8 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
         ..Default::default()
     };
 
+    info!("Using this client config: {:?}", client_config.protocol);
+
     let client = Client::new(client_config);
 
     // Pull the component using oci-client

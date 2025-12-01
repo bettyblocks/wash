@@ -320,14 +320,20 @@ async fn workload_start(
                 .map(|s| s.to_string())
                 .collect::<HashSet<_>>();
 
+            info!("insecure registries {:?}", insecure_registries,);
+
             let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
             let oci_config = OciConfig {
                 insecure_registries,
                 ..oci_config
             };
             let bytes = match oci::pull_component(&component.image, oci_config).await {
-                Ok(bytes) => bytes,
+                Ok(bytes) => {
+                    info!("success pull of image: {}", component.image);
+                    bytes
+                }
                 Err(e) => {
+                    info!("failed to pull component image {}: {}", component.image, e);
                     return Ok(types::v2::WorkloadStartResponse {
                         workload_status: Some(types::v2::WorkloadStatus {
                             workload_id: "".into(),
