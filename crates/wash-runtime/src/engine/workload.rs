@@ -323,8 +323,8 @@ impl WorkloadComponent {
         // Dus ook `func_wrap()` en `func_wrap_concurent()`
         // En `func_new()` en `func_new_concurrent()`
         // En `module()`
-        // En `resource()` en `resource_async()`
-        //
+        // En `resource()` en `resource_async()` en `resource_concurrent()`
+        // En `into_instance()`
         self.metadata.linker.instantiate_pre(&component)
     }
 
@@ -411,6 +411,39 @@ pub struct ResolvedWorkload {
     service: Option<WorkloadService>,
     /// The requested host [`WitInterface`]s to resolve this workload
     host_interfaces: Vec<WitInterface>,
+}
+
+struct InterfaceThings {
+    id: String,
+    imports: HashSet<String>,
+    exports: HashSet<String>,
+}
+
+fn order_components(
+    component_ids: Vec<String>,
+    interfaces: Vec<InterfaceThings>,
+) -> anyhow::Result<Vec<String>> {
+    let mut ordered_component_ids: HashSet<String> = HashSet::new();
+    let mut exported_interfaces: HashSet<String> = HashSet::new();
+    eprintln!("YES");
+
+    while ordered_component_ids.len() != component_ids.len() {
+        eprintln!("YES");
+        for interface in &interfaces {
+            if interface
+                .imports
+                .iter()
+                .all(|s| exported_interfaces.contains(s))
+                && !ordered_component_ids.contains(&interface.id.to_string())
+            {
+                ordered_component_ids.insert(interface.id.to_string());
+                exported_interfaces.extend(interface.exports.iter().cloned());
+            }
+        }
+        eprintln!("{:?}", ordered_component_ids);
+    }
+
+    Ok(ordered_component_ids.into_iter().collect())
 }
 
 impl ResolvedWorkload {
@@ -535,6 +568,29 @@ impl ResolvedWorkload {
         &mut self,
         interface_map: &HashMap<String, Arc<str>>,
     ) -> anyhow::Result<()> {
+        // NOTE:
+        // Dus hier moet een soort van ordening komen, je krijgt een interface map mee
+        // Maar daar mist denk ik info, je hebt ook het component id nodig die het importeert
+        // Want daarmee kan je soorteren denk ik
+        // Interface map is nu, name: export, dat wordt dan een object met {name, import_id,
+        // export_id} daarop kan je dus soorteren
+        //
+        // NOTE:
+        // Algoritme
+        // Als je exporteert, en niets importeert dan kan je beginnen
+        // Het volgende component is dan wat importeert wat er in de vorige is ge-exporteerd als
+        // dat alle exports zijn
+        // Eigenlijk moet je een soort van tree maken denk ik? Maar het is ook weer niet echt een
+        // tree
+        //
+        // NOTE:
+        // Dus wat je kan doen, een lijstje bij houden van alle component ids die je hebt gedaan
+        // Je begint met een component die niets (buiten wasi dingen) importeert
+        // Dan voeg je die exports toe aan een lijst en het component aan de component ids
+        // Dan pak je alle componenten waar alle imports nu in de exports lijst zitten en niet in
+        // component_ids
+        // Net zo lang tot je alles hebt gedaan
+
         let component_ids: Vec<Arc<str>> = self.components.read().await.keys().cloned().collect();
         for component_id in component_ids {
             // In order to have mutable access to both the workload component and components that need
@@ -674,6 +730,8 @@ impl ResolvedWorkload {
                                 let export_name: Arc<str> = export_name.into();
                                 let pre = pre.clone();
                                 let instance = instance.clone();
+                                // NOTE:
+                                // Hier worden ze dus toegevoegd
                                 linker_instance
                                     .func_new_async(
                                         &export_name.clone(),
@@ -1867,5 +1925,87 @@ mod tests {
         assert!(!world.includes_bidirectional(&interface4));
         // Show the difference between includes and includes_bidirectional
         assert!(!world.includes(&interface3));
+    }
+
+    #[tokio::test]
+    async fn test_order_components() {
+        let expected_result = vec!["3".to_string(), "2".to_string(), "1".to_string()];
+        let component_ids: Vec<String> = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+
+        let interfaces: Vec<InterfaceThings> = vec![
+            InterfaceThings {
+                id: "1".to_string(),
+                imports: HashSet::from(["test:interface/two".to_string()]),
+                exports: HashSet::from(["wasi:http/incoming-handler@0.2.2".to_string()]),
+            },
+            InterfaceThings {
+                id: "2".to_string(),
+                imports: HashSet::from(["test:interface/three".to_string()]),
+                exports: HashSet::from(["test:interface/two".to_string()]),
+            },
+            InterfaceThings {
+                id: "3".to_string(),
+                imports: HashSet::new(),
+                exports: HashSet::from(["test:interface/three".to_string()]),
+            },
+        ];
+
+        let result = order_components(component_ids, interfaces).unwrap();
+
+        assert_eq!(expected_result, result);
+    }
+
+    #[tokio::test]
+    async fn test_order_components_importing_wasi_interfaces_should_not_affect_ordering() {
+        let expected_result = vec!["3".to_string(), "2".to_string(), "1".to_string()];
+        let component_ids: Vec<String> = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+
+        let interfaces: Vec<InterfaceThings> = vec![
+            InterfaceThings {
+                id: "1".to_string(),
+                imports: HashSet::from(["test:interface/two".to_string()]),
+                exports: HashSet::from(["wasi:http/incoming-handler@0.2.2".to_string()]),
+            },
+            InterfaceThings {
+                id: "2".to_string(),
+                imports: HashSet::from(["test:interface/three".to_string()]),
+                exports: HashSet::from(["test:interface/two".to_string()]),
+            },
+            InterfaceThings {
+                id: "3".to_string(),
+                imports: HashSet::from(["wasi:http/incoming-handler@0.2.2".to_string()]),
+                exports: HashSet::from(["test:interface/three".to_string()]),
+            },
+        ];
+
+        let result = order_components(component_ids, interfaces).unwrap();
+
+        assert_eq!(expected_result, result);
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_order_components_should_throw_error_when_imports_and_exports_dont_match() {
+        let component_ids: Vec<String> = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+
+        let interfaces: Vec<InterfaceThings> = vec![
+            InterfaceThings {
+                id: "1".to_string(),
+                imports: HashSet::from(["test:interface/four".to_string()]),
+                exports: HashSet::from(["wasi:http/incoming-handler@0.2.2".to_string()]),
+            },
+            InterfaceThings {
+                id: "2".to_string(),
+                imports: HashSet::from(["test:interface/three".to_string()]),
+                exports: HashSet::from(["test:interface/two".to_string()]),
+            },
+            InterfaceThings {
+                id: "3".to_string(),
+                imports: HashSet::from(["wasi:http/incoming-handler@0.2.2".to_string()]),
+                exports: HashSet::from(["test:interface/three".to_string()]),
+            },
+        ];
+
+        let _result = order_components(component_ids, interfaces).unwrap();
     }
 }

@@ -1,5 +1,7 @@
 #[cfg(feature = "grpc")]
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
