@@ -308,7 +308,23 @@ impl WorkloadComponent {
 
     /// Pre-instantiate the component to prepare for instantiation.
     pub fn pre_instantiate(&mut self) -> anyhow::Result<InstancePre<Ctx>> {
+        debug!("START PRE INSTANTIATE");
         let component = self.metadata.component.clone();
+
+        // NOTE:
+        // Dit lijkt de gene dat mis gaat
+        // En daarin dan de typecheck, daarin loopt die over de env_component.import_types()
+        // Zoekt naar cx.definition(), dus daar lijkt het mis, want waarschijnlijkg gaat die
+        // self.map mis.
+        // DUs de map, moet erigens worden aangevuld, uitzoeken waar dat is
+        // Is dus de linker.map
+        // In `into_instance()` wordt de map aangepast
+        // Ook `insert()`
+        // Dus ook `func_wrap()` en `func_wrap_concurent()`
+        // En `func_new()` en `func_new_concurrent()`
+        // En `module()`
+        // En `resource()` en `resource_async()` en `resource_concurrent()`
+        // En `into_instance()`
         self.metadata.linker.instantiate_pre(&component)
     }
 
@@ -397,6 +413,39 @@ pub struct ResolvedWorkload {
     host_interfaces: Vec<WitInterface>,
 }
 
+struct InterfaceThings {
+    id: String,
+    imports: HashSet<String>,
+    exports: HashSet<String>,
+}
+
+fn order_components(
+    component_ids: Vec<String>,
+    interfaces: Vec<InterfaceThings>,
+) -> anyhow::Result<Vec<String>> {
+    let mut ordered_component_ids: HashSet<String> = HashSet::new();
+    let mut exported_interfaces: HashSet<String> = HashSet::new();
+    eprintln!("YES");
+
+    while ordered_component_ids.len() != component_ids.len() {
+        eprintln!("YES");
+        for interface in &interfaces {
+            if interface
+                .imports
+                .iter()
+                .all(|s| exported_interfaces.contains(s))
+                && !ordered_component_ids.contains(&interface.id.to_string())
+            {
+                ordered_component_ids.insert(interface.id.to_string());
+                exported_interfaces.extend(interface.exports.iter().cloned());
+            }
+        }
+        eprintln!("{:?}", ordered_component_ids);
+    }
+
+    Ok(ordered_component_ids.into_iter().collect())
+}
+
 impl ResolvedWorkload {
     /// Executes the service, if present, and returns whether it was run.
     pub(crate) async fn execute_service(&mut self) -> anyhow::Result<bool> {
@@ -465,9 +514,17 @@ impl ResolvedWorkload {
         // A map from component ID to its exported interfaces
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
 
+        // NOTE:
+        // Volgens mij moet eerst die interface map gemaakt worden, en dan pas dat je alles
+        // probeert te linken, want anders krijg je dat het af en toe mis gaat
+        // Dat gebeurt ook gewoon
+
         // Determine available component exports to link to the rest of the workload
         for c in self.components.read().await.values() {
             let exported_instances = c.component_exports()?;
+
+            debug!("Exported instances: {:?}", exported_instances);
+
             for (name, item) in exported_instances {
                 // TODO(#11): It's probably a good idea to skip registering wasi@0.2 interfaces
                 match name.split_once('@') {
@@ -497,6 +554,8 @@ impl ResolvedWorkload {
                 }
             }
         }
+
+        debug!("Interface map: {:?}", &interface_map);
 
         self.resolve_workload_imports(&interface_map).await?;
 
@@ -604,13 +663,13 @@ impl ResolvedWorkload {
         for (import_name, import_item) in imports.into_iter() {
             match import_item {
                 ComponentItem::ComponentInstance(import_instance_ty) => {
-                    trace!(name = import_name, "processing component instance import");
+                    debug!(name = import_name, "processing component instance import");
                     let mut all_components = self.components.write().await;
                     let (plugin_component, instance_idx) = {
                         let Some(exporter_component) = interface_map.get(import_name) else {
                             // TODO: error because unsatisfied import, if there's no available
                             // export then it's an unresolvable workload
-                            trace!(
+                            debug!(
                                 name = import_name,
                                 "import not found in component exports, skipping"
                             );
@@ -618,7 +677,7 @@ impl ResolvedWorkload {
                         };
                         let Some(plugin_component) = all_components.get_mut(exporter_component)
                         else {
-                            trace!(
+                            debug!(
                                 name = import_name,
                                 "exporting component not found in all components, skipping"
                             );
@@ -629,12 +688,15 @@ impl ResolvedWorkload {
                             .component
                             .get_export(None, import_name)
                         else {
-                            trace!(name = import_name, "skipping non-instance import");
+                            debug!(name = import_name, "skipping non-instance import");
                             continue;
                         };
                         (plugin_component, idx)
                     };
-                    trace!(name = import_name, index = ?instance_idx, "found import at index");
+                    debug!(name = import_name, index = ?instance_idx, "found import at index");
+
+                    // NOTE:
+                    // Dit gaat fout
 
                     // Preinstantiate the plugin instance so we can use it later
                     let pre = plugin_component
@@ -644,7 +706,8 @@ impl ResolvedWorkload {
                     let mut linker_instance = match linker.instance(import_name) {
                         Ok(i) => i,
                         Err(e) => {
-                            trace!(name = import_name, error = %e, "error finding instance in linker, skipping");
+                            debug!("HELLO FROM HERE");
+                            debug!(name = import_name, error = %e, "error finding instance in linker, skipping");
                             continue;
                         }
                     };
@@ -682,6 +745,8 @@ impl ResolvedWorkload {
                                 let export_name: Arc<str> = export_name.into();
                                 let pre = pre.clone();
                                 let instance = instance.clone();
+                                // NOTE:
+                                // Hier worden ze dus toegevoegd
                                 linker_instance
                                     .func_new_async(
                                         &export_name.clone(),
