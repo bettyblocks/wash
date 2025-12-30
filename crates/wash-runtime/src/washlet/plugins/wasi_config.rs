@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use dashmap::DashMap;
 use wasmtime::component::HasSelf;
 
 const PLUGIN_WASI_CONFIG_ID: &str = "wasi-config";
@@ -32,7 +32,7 @@ use bindings::wasi::config::store::{Error as ConfigError, Host};
 #[derive(Clone, Default)]
 pub struct WasiConfig {
     /// A map of configuration from workload id to key-value pairs
-    config: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+    config: Arc<DashMap<String, HashMap<String, String>>>,
 }
 
 impl Host for Ctx {
@@ -40,8 +40,7 @@ impl Host for Ctx {
         let Some(plugin) = self.get_plugin::<WasiConfig>(PLUGIN_WASI_CONFIG_ID) else {
             return Ok(Ok(None));
         };
-        let config_guard = plugin.config.read().await;
-        config_guard
+        plugin.config
             .get(&self.component_id.to_string())
             .and_then(|map| map.get(&key).cloned())
             .map_or(Ok(Ok(None)), |v| Ok(Ok(Some(v))))
@@ -51,8 +50,7 @@ impl Host for Ctx {
         let Some(plugin) = self.get_plugin::<WasiConfig>(PLUGIN_WASI_CONFIG_ID) else {
             return Ok(Ok(vec![]));
         };
-        let config_guard = plugin.config.read().await;
-        let entries = config_guard
+        let entries = plugin.config
             .get(&self.component_id.to_string())
             .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
@@ -97,7 +95,7 @@ impl HostPlugin for WasiConfig {
 
         // Store the configuration for lookups later
         // This mirrors wasi:cli/env on wasi:config/store
-        self.config.write().await.insert(
+        self.config.insert(
             component_handle.id().to_string(),
             component_handle.local_resources().environment.clone(),
         );

@@ -5,7 +5,7 @@
 //! components to log messages at various levels (trace, debug, info, warn,
 //! error, critical).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::sync::Arc;
 
 use crate::engine::ctx::Ctx;
@@ -24,10 +24,10 @@ mod bindings {
 }
 
 use bindings::wasi::logging::logging::Level;
-use tokio::sync::RwLock;
+use dashmap::DashMap;
 use wasmtime::component::HasSelf;
 
-type ComponentMap = Arc<RwLock<HashMap<String, ComponentInfo>>>;
+type ComponentMap = Arc<DashMap<String, ComponentInfo>>;
 
 #[derive(Default)]
 pub struct TracingLogging {
@@ -46,15 +46,15 @@ impl bindings::wasi::logging::logging::Host for Ctx {
             bail!("TracingLogging plugin not found in context");
         };
 
-        let workloads = plugin.components.read().await;
-        let Some(ComponentInfo {
-            workload_name,
-            workload_namespace,
-            component_id,
-        }) = workloads.get(&self.component_id.to_string())
+        let Some(item) = plugin.components.get(&self.component_id.to_string())
         else {
             bail!("Component not found in TracingLogging plugin");
         };
+        let ComponentInfo {
+            workload_name,
+            workload_namespace,
+            component_id,
+        } = item.value();
         match level {
             Level::Trace => {
                 tracing::trace!(
@@ -153,7 +153,7 @@ impl HostPlugin for TracingLogging {
             |ctx| ctx,
         )?;
 
-        self.components.write().await.insert(
+        self.components.insert(
             component.id().to_string(),
             ComponentInfo {
                 workload_name: component.workload_name().to_string(),

@@ -9,7 +9,7 @@ use std::{
 };
 
 const WASI_KEYVALUE_ID: &str = "wasi-keyvalue";
-use tokio::sync::RwLock;
+use dashmap::DashMap;
 use wasmtime::component::{HasSelf, Resource};
 
 use crate::{
@@ -45,13 +45,13 @@ pub type BucketHandle = String;
 #[derive(Clone, Default)]
 pub struct WasiKeyvalue {
     /// Storage for all buckets, keyed by workload ID, then bucket name
-    storage: Arc<RwLock<HashMap<String, HashMap<String, BucketData>>>>,
+    storage: Arc<DashMap<String, HashMap<String, BucketData>>>,
 }
 
 impl WasiKeyvalue {
     pub fn new() -> Self {
         Self {
-            storage: Arc::new(RwLock::new(HashMap::new())),
+            storage: Arc::new(DashMap::new()),
         }
     }
 
@@ -75,17 +75,16 @@ impl bindings::wasi::keyvalue::store::Host for Ctx {
             )));
         };
 
-        let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let mut workload_storage = plugin.storage.entry(self.id.clone()).or_default();
 
         // Create bucket if it doesn't exist
-        if !workload_storage.contains_key(&identifier) {
+        if !workload_storage.value().contains_key(&identifier) {
             let bucket_data = BucketData {
                 name: identifier.clone(),
                 data: HashMap::new(),
                 created_at: WasiKeyvalue::get_timestamp(),
             };
-            workload_storage.insert(identifier.clone(), bucket_data);
+            workload_storage.value_mut().insert(identifier.clone(), bucket_data);
         }
 
         let resource = self.table.push(identifier)?;
@@ -108,11 +107,14 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
             )));
         };
 
-        let storage = plugin.storage.read().await;
-        let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = match plugin.storage.get(&self.id) {
+            Some(workload_storage) => workload_storage,
+            None => return Ok(Err(StoreError::Other(format!(
+                "bucket '{bucket_name}' does not exist"
+            )))),
+        };
 
-        match workload_storage.get(bucket_name) {
+        match workload_storage.value().get(bucket_name) {
             Some(bucket_data) => {
                 let value = bucket_data.data.get(&key).cloned();
                 Ok(Ok(value))
@@ -137,10 +139,9 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
             )));
         };
 
-        let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let mut workload_storage = plugin.storage.entry(self.id.clone()).or_default();
 
-        match workload_storage.get_mut(bucket_name) {
+        match workload_storage.value_mut().get_mut(bucket_name) {
             Some(bucket_data) => {
                 bucket_data.data.insert(key, value);
                 Ok(Ok(()))
@@ -164,10 +165,9 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
             )));
         };
 
-        let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let mut workload_storage = plugin.storage.entry(self.id.clone()).or_default();
 
-        match workload_storage.get_mut(bucket_name) {
+        match workload_storage.value_mut().get_mut(bucket_name) {
             Some(bucket_data) => {
                 bucket_data.data.remove(&key);
                 Ok(Ok(()))
@@ -191,11 +191,14 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
             )));
         };
 
-        let storage = plugin.storage.read().await;
-        let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = match plugin.storage.get(&self.id) {
+            Some(workload_storage) => workload_storage,
+            None => return Ok(Err(StoreError::Other(format!(
+                "bucket '{bucket_name}' does not exist"
+            )))),
+        };
 
-        match workload_storage.get(bucket_name) {
+        match workload_storage.value().get(bucket_name) {
             Some(bucket_data) => Ok(Ok(bucket_data.data.contains_key(&key))),
             None => Ok(Err(StoreError::Other(format!(
                 "bucket '{bucket_name}' does not exist"
@@ -216,11 +219,14 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
             )));
         };
 
-        let storage = plugin.storage.read().await;
-        let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = match plugin.storage.get(&self.id) {
+            Some(workload_storage) => workload_storage,
+            None => return Ok(Err(StoreError::Other(format!(
+                "bucket '{bucket_name}' does not exist"
+            )))),
+        };
 
-        match workload_storage.get(bucket_name) {
+        match workload_storage.value().get(bucket_name) {
             Some(bucket_data) => {
                 let mut keys: Vec<String> = bucket_data.data.keys().cloned().collect();
                 keys.sort(); // Ensure consistent ordering
@@ -278,10 +284,9 @@ impl bindings::wasi::keyvalue::atomics::Host for Ctx {
             )));
         };
 
-        let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let mut workload_storage = plugin.storage.entry(self.id.clone()).or_default();
 
-        match workload_storage.get_mut(bucket_name) {
+        match workload_storage.value_mut().get_mut(bucket_name) {
             Some(bucket_data) => {
                 // Get current value, treating missing key as 0
                 let current_bytes = bucket_data.data.get(&key);
@@ -328,11 +333,14 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
             )));
         };
 
-        let storage = plugin.storage.read().await;
-        let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = match plugin.storage.get(&self.id) {
+            Some(workload_storage) => workload_storage,
+            None => return Ok(Err(StoreError::Other(format!(
+                "bucket '{bucket_name}' does not exist"
+            )))),
+        };
 
-        match workload_storage.get(bucket_name) {
+        match workload_storage.value().get(bucket_name) {
             Some(bucket_data) => {
                 let results: Vec<Option<(String, Vec<u8>)>> = keys
                     .into_iter()
@@ -365,10 +373,9 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
             )));
         };
 
-        let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let mut workload_storage = plugin.storage.entry(self.id.clone()).or_default();
 
-        match workload_storage.get_mut(bucket_name) {
+        match workload_storage.value_mut().get_mut(bucket_name) {
             Some(bucket_data) => {
                 for (key, value) in key_values {
                     bucket_data.data.insert(key, value);
@@ -394,10 +401,9 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
             )));
         };
 
-        let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let mut workload_storage = plugin.storage.entry(self.id.clone()).or_default();
 
-        match workload_storage.get_mut(bucket_name) {
+        match workload_storage.value_mut().get_mut(bucket_name) {
             Some(bucket_data) => {
                 for key in keys {
                     bucket_data.data.remove(&key);
@@ -461,8 +467,7 @@ impl HostPlugin for WasiKeyvalue {
         );
 
         // Initialize storage for this workload
-        let mut storage = self.storage.write().await;
-        storage.insert(id.to_string(), HashMap::new());
+        self.storage.insert(id.to_string(), HashMap::new());
 
         tracing::debug!("WasiKeyvalue plugin bound to workload '{id}'");
 
@@ -475,8 +480,7 @@ impl HostPlugin for WasiKeyvalue {
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Clean up storage for this workload
-        let mut storage = self.storage.write().await;
-        storage.remove(workload_id);
+        self.storage.remove(workload_id);
 
         tracing::debug!("WasiKeyvalue plugin unbound from workload '{workload_id}'");
 
@@ -491,7 +495,7 @@ mod tests {
     #[test]
     fn test_wasi_keyvalue_creation() {
         let keyvalue = WasiKeyvalue::new();
-        assert!(keyvalue.storage.try_read().is_ok());
+        assert!(keyvalue.storage.is_empty());
     }
 
     #[test]
@@ -519,14 +523,12 @@ mod tests {
 
         // Test write access
         {
-            let mut storage = keyvalue.storage.write().await;
-            storage.insert("workload1".to_string(), HashMap::new());
+            keyvalue.storage.insert("workload1".to_string(), HashMap::new());
         }
 
         // Test read access
         {
-            let storage = keyvalue.storage.read().await;
-            assert!(storage.contains_key("workload1"));
+            assert!(keyvalue.storage.contains_key("workload1"));
         }
     }
 

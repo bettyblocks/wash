@@ -20,6 +20,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use dashmap::DashMap;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 use wash_runtime::{
@@ -51,7 +52,7 @@ pub struct PluginManager {
     /// All registered plugins
     plugins: Arc<RwLock<Vec<Arc<PluginComponent>>>>,
     /// A map of configuration from workload id to key-value pairs
-    runtime_config: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+    runtime_config: Arc<DashMap<String, HashMap<String, String>>>,
     /// Whether to skip confirmation prompts for host exec operations
     skip_confirmation: bool,
 }
@@ -371,7 +372,7 @@ impl PluginComponent {
     pub async fn call_hook(
         &self,
         hook: HookType,
-        runner_context: Arc<RwLock<HashMap<String, String>>>,
+        runner_context: Arc<DashMap<String, String>>,
     ) -> anyhow::Result<String> {
         let mut store = self.workload.new_store(&self.id).await?;
         let component = self.workload.instantiate_pre(&self.id).await?;
@@ -409,7 +410,7 @@ impl PluginComponent {
     pub async fn call_run(
         &self,
         command: &bindings::wasmcloud::wash::types::Command,
-        runner_context: Arc<RwLock<HashMap<String, String>>>,
+        runner_context: Arc<DashMap<String, String>>,
     ) -> anyhow::Result<String> {
         let mut store = self.workload.new_store(&self.id).await?;
         let component = self.workload.instantiate_pre(&self.id).await?;

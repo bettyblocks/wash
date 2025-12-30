@@ -27,6 +27,7 @@ async-nats = { workspace = true, features = ["aws-lc-rs"] }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
+dashmap = { workspace = true }
 futures = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true, features = ["server", "http1"] }
