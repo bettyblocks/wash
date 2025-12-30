@@ -25,6 +25,7 @@ use std::{
     sync::Arc,
 };
 
+use dashmap::DashMap;
 use crate::engine::ctx::Ctx;
 use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
@@ -290,7 +291,7 @@ impl HostHandler for NullServer {
 
 /// A map from host header to resolved workload handles and their associated component id
 pub type WorkloadHandles =
-    Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<Ctx>, String)>>>;
+    Arc<DashMap<String, (ResolvedWorkload, InstancePre<Ctx>, String)>>;
 
 /// HTTP server plugin that handles incoming HTTP requests for WebAssembly components.
 ///
@@ -425,7 +426,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
             .await?;
         let instance_pre = resolved_handle.instantiate_pre(component_id).await?;
 
-        self.workload_handles.write().await.insert(
+        self.workload_handles.insert(
             resolved_handle.id().to_string(),
             (
                 resolved_handle.clone(),
@@ -440,7 +441,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
         self.router.on_workload_unbind(workload_id).await?;
 
-        self.workload_handles.write().await.remove(workload_id);
+        self.workload_handles.remove(workload_id);
 
         Ok(())
     }
@@ -563,9 +564,9 @@ async fn handle_http_request<T: Router>(
 
     // Look up workload handle for this host, with wildcard fallback
     let workload_handle = {
-        let handles = workload_handles.read().await;
+        let handles = workload_handles;
         debug!(host = %workload_id, "looking up workload handle for host header");
-        handles.get(&workload_id).cloned()
+        handles.get(&workload_id).map(|item| item.value().clone())
     };
 
     let response = match workload_handle {

@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use dashmap::DashMap;
 use anyhow::{Context as _, bail, ensure};
 use bytes::Bytes;
 use etcetera::{
@@ -14,7 +15,6 @@ use etcetera::{
     app_strategy::{Windows, Xdg},
     choose_app_strategy,
 };
-use tokio::sync::RwLock;
 
 use serde_json::json;
 use tracing::{debug, error, info, instrument, trace};
@@ -613,7 +613,7 @@ impl CliContext {
     pub async fn call_hooks(
         &self,
         hook_type: HookType,
-        runtime_context: Arc<RwLock<HashMap<String, String>>>,
+        runtime_context: Arc<DashMap<String, String>>,
     ) {
         let hooks = self.plugin_manager.get_hooks(hook_type).await;
         for hook in hooks {

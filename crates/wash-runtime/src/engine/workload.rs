@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{Context as _, bail, ensure};
+use dashmap::DashMap;
 use tokio::{sync::RwLock, task::JoinHandle, time::timeout};
 use tracing::{debug, info, trace, warn};
 use wasmtime::component::{
@@ -388,7 +389,7 @@ pub struct ResolvedWorkload {
     namespace: Arc<str>,
     /// All components in the workload. This is behind a `RwLock` to support mutable
     /// access to the component linkers.
-    components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
+    components: Arc<DashMap<Arc<str>, WorkloadComponent>>,
     /// The HTTP handler for outgoing HTTP requests
     http_handler: Arc<dyn crate::host::http::HostHandler>,
     /// An optional service component that runs once to completion or for the duration of the workload
@@ -453,7 +454,7 @@ impl ResolvedWorkload {
         }
     }
 
-    pub fn components(&self) -> Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>> {
+    pub fn components(&self) -> Arc<DashMap<Arc<str>, WorkloadComponent>> {
         self.components.clone()
     }
 
@@ -466,7 +467,8 @@ impl ResolvedWorkload {
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
 
         // Determine available component exports to link to the rest of the workload
-        for c in self.components.read().await.values() {
+        for item in self.components.iter() {
+            let c = item.value();
             let exported_instances = c.component_exports()?;
             for (name, item) in exported_instances {
                 // TODO(#11): It's probably a good idea to skip registering wasi@0.2 interfaces
@@ -518,8 +520,10 @@ impl ResolvedWorkload {
         let mut dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
 
         {
-            let components = self.components.read().await;
-            for (component_id, component) in components.iter() {
+            let components = self.components.clone();
+            for item in components.iter() {
+                let component_id = item.key();
+                let component = item.value();
                 let mut deps = HashSet::new();
                 let ty = component.metadata.component.component_type();
                 for (import_name, import_item) in ty.imports(component.metadata.component.engine())
@@ -551,10 +555,8 @@ impl ResolvedWorkload {
         for component_id in sorted_component_ids {
             // In order to have mutable access to both the workload component and components that need
             // to be instantiated as "plugins" during linking, we remove and re-add the component to the list.
-            let mut workload_component = {
+            let (_, mut workload_component) = {
                 self.components
-                    .write()
-                    .await
                     .remove(&component_id)
                     .context("component not found during import resolution")?
             };
@@ -565,8 +567,6 @@ impl ResolvedWorkload {
                 .resolve_component_imports(&component, linker, interface_map)
                 .await;
             self.components
-                .write()
-                .await
                 .insert(workload_component.metadata.id.clone(), workload_component);
             // Propagate any errors encountered during import resolution
             res?;
@@ -605,8 +605,8 @@ impl ResolvedWorkload {
             match import_item {
                 ComponentItem::ComponentInstance(import_instance_ty) => {
                     trace!(name = import_name, "processing component instance import");
-                    let mut all_components = self.components.write().await;
-                    let (plugin_component, instance_idx) = {
+                    let all_components = self.components.clone();
+                    let (mut plugin_component, instance_idx) = {
                         let Some(exporter_component) = interface_map.get(import_name) else {
                             // TODO: error because unsatisfied import, if there's no available
                             // export then it's an unresolvable workload
@@ -878,12 +878,12 @@ impl ResolvedWorkload {
     /// Returns the number of components in this workload.
     /// Does not include the service component if one is defined.
     pub async fn component_count(&self) -> usize {
-        self.components.read().await.len()
+        self.components.len()
     }
 
     /// Helper to create a new wasmtime Store for a given component in the workload.
     pub async fn new_store(&self, component_id: &str) -> anyhow::Result<wasmtime::Store<Ctx>> {
-        let components = self.components.read().await;
+        let components = self.components.clone();
         let component = components
             .get(component_id)
             .context("component ID not found in workload")?;
@@ -895,7 +895,7 @@ impl ResolvedWorkload {
         &self,
         metadata: &WorkloadMetadata,
     ) -> anyhow::Result<wasmtime::Store<Ctx>> {
-        let components = self.components.read().await;
+        let components = self.components.clone();
 
         // TODO: Consider stderr/stdout buffering + logging
         let mut wasi_ctx_builder = WasiCtxBuilder::new();
@@ -915,7 +915,7 @@ impl ResolvedWorkload {
         // Mount all possible volume mounts in the workload since components share a WasiCtx
         for (host_path, mount) in &components
             .iter()
-            .flat_map(|(_id, workload_component)| workload_component.metadata.volume_mounts.clone())
+            .flat_map(|workload_component_item| workload_component_item.value().metadata.volume_mounts.clone())
             .collect::<Vec<_>>()
         {
             let dir = tokio::fs::canonicalize(host_path).await?;
@@ -944,8 +944,8 @@ impl ResolvedWorkload {
         &self,
         component_id: &str,
     ) -> anyhow::Result<wasmtime::component::InstancePre<Ctx>> {
-        let mut components = self.components.write().await;
-        let component = components
+        let components = self.components.clone();
+        let mut component = components
             .get_mut(component_id)
             .context("component ID not found in workload")?;
         let wasmtime_component = component.metadata.component.clone();
@@ -967,7 +967,8 @@ impl ResolvedWorkload {
             "unbinding all plugins from workload"
         );
 
-        for component in self.components.read().await.values() {
+        for item in self.components.iter() {
+            let component = item.value();
             if let Some(plugins) = component.plugins() {
                 for (plugin_id, plugin) in plugins.iter() {
                     trace!(
@@ -1362,7 +1363,7 @@ impl UnresolvedWorkload {
             id: self.id.clone(),
             name: self.name.clone(),
             namespace: self.namespace.clone(),
-            components: Arc::new(RwLock::new(self.components)),
+            components: Arc::new(DashMap::from_iter(self.components)),
             service: self.service,
             host_interfaces: self.host_interfaces,
             http_handler: http_handler.clone(),

@@ -45,6 +45,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
 use anyhow::{Context, bail};
 use names::{Generator, Name};
 use tokio::sync::RwLock;
@@ -178,7 +179,7 @@ impl From<&HostWorkload> for WorkloadState {
 pub struct Host {
     engine: Engine,
     /// Workloads mapped from ID to the workload and its current state
-    workloads: Arc<RwLock<HashMap<String, HostWorkload>>>,
+    workloads: Arc<DashMap<String, HostWorkload>>,
     /// Plugins in a map from their ID to the plugin itself
     plugins: HashMap<&'static str, Arc<dyn HostPlugin>>,
     /// Host metadata
@@ -422,10 +423,11 @@ impl HostApi for Host {
 
         // Count components and providers from workloads
         let (workload_count, component_count) = {
-            let workloads = self.workloads.read().await;
+            let workloads = self.workloads.clone();
             let workload_count: u64 = workloads.len() as u64;
             let mut component_count: u64 = 0;
-            for workload in workloads.values() {
+            for item in workloads.iter() {
+                let workload = item.value();
                 if let HostWorkload::Running(workload) = workload {
                     component_count += workload.component_count().await as u64;
                 }
@@ -470,8 +472,6 @@ impl HostApi for Host {
     ) -> anyhow::Result<WorkloadStartResponse> {
         // Store the workload with initial state
         self.workloads
-            .write()
-            .await
             .insert(request.workload_id.clone(), HostWorkload::Starting);
 
         let service_present = request.workload.service.is_some();
@@ -495,8 +495,6 @@ impl HostApi for Host {
 
         // Update the workload state to `Running`
         self.workloads
-            .write()
-            .await
             .entry(request.workload_id.clone())
             .and_modify(|workload| {
                 *workload = HostWorkload::Running(Box::new(resolved_workload));
@@ -515,8 +513,8 @@ impl HostApi for Host {
         &self,
         request: WorkloadStatusRequest,
     ) -> anyhow::Result<WorkloadStatusResponse> {
-        if let Some(workload) = self.workloads.read().await.get(&request.workload_id) {
-            let workload_state = workload.into();
+        if let Some(workload) = self.workloads.get(&request.workload_id) {
+            let workload_state = workload.value().into();
             Ok(WorkloadStatusResponse {
                 workload_status: WorkloadStatus {
                     workload_id: request.workload_id,
@@ -535,14 +533,12 @@ impl HostApi for Host {
     ) -> anyhow::Result<WorkloadStopResponse> {
         let has_workload = self
             .workloads
-            .read()
-            .await
             .contains_key(&request.workload_id);
 
         let (workload_state, message) = if has_workload {
             // Update state to stopping
             let resolved_workload = {
-                let mut workloads = self.workloads.write().await;
+                let workloads = self.workloads.clone();
                 trace!(
                     workload_id = request.workload_id,
                     "updating workload state to stopping"
@@ -582,7 +578,7 @@ impl HostApi for Host {
 
             // Remove the workload from the active workloads map
             // This will drop the workload and clean up wasmtime resources
-            self.workloads.write().await.remove(&request.workload_id);
+            self.workloads.remove(&request.workload_id);
 
             debug!(
                 workload_id = request.workload_id,

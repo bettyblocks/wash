@@ -3,8 +3,9 @@
 
 use anyhow::{Context as _, Result};
 use dialoguer::{Confirm, theme::ColorfulTheme};
+use dashmap::DashMap;
 use std::{collections::HashMap, env, sync::Arc};
-use tokio::{process::Command, sync::RwLock};
+use tokio::{process::Command};
 use tracing::{debug, warn};
 use wash_runtime::engine::ctx::Ctx;
 use wasmtime::component::Resource;
@@ -17,14 +18,14 @@ pub struct Runner {
     version: String,
     /// The metadata of the plugin
     pub metadata: Metadata,
-    pub context: Arc<RwLock<HashMap<String, String>>>,
+    pub context: Arc<DashMap<String, String>>,
     pub(crate) skip_confirmation: bool,
 }
 
 impl Runner {
     pub fn new(
         metadata: Metadata,
-        context: Arc<RwLock<HashMap<String, String>>>,
+        context: Arc<DashMap<String, String>>,
         skip_confirmation: bool,
     ) -> Self {
         Self {
@@ -48,7 +49,7 @@ impl Default for ProjectConfig {
     }
 }
 
-pub type Context = Arc<RwLock<HashMap<String, String>>>;
+pub type Context = Arc<DashMap<String, String>>;
 pub type PluginConfig = HashMap<String, String>;
 
 impl crate::plugin::bindings::wasmcloud::wash::types::Host for Ctx {}
@@ -62,7 +63,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
                 return None;
             }
         };
-        context.read().await.get(&key).cloned()
+        context.get(&key).map(|item| item.value().clone())
     }
 
     async fn set(&mut self, ctx: Resource<Context>, key: String, value: String) -> Option<String> {
@@ -74,7 +75,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
             }
         };
 
-        context.write().await.insert(key, value)
+        context.insert(key, value)
     }
 
     async fn delete(&mut self, ctx: Resource<Context>, key: String) -> Option<String> {
@@ -86,7 +87,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
             }
         };
 
-        context.write().await.remove(&key)
+        context.remove(&key).map(|(_, value)| value)
     }
 
     async fn list(&mut self, ctx: Resource<Context>) -> Vec<String> {
@@ -98,7 +99,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
             }
         };
 
-        context.read().await.keys().cloned().collect()
+        context.iter().map(|item| item.key().clone()).collect()
     }
 
     async fn drop(&mut self, ctx: Resource<Context>) -> wasmtime::Result<()> {
@@ -141,9 +142,8 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
         };
 
         let runtime_config = {
-            let all_config = plugin.runtime_config.read().await;
-            match all_config.get(&self.id) {
-                Some(config) => config.clone(),
+            match plugin.runtime_config.get(&self.id) {
+                Some(config) => config.value().clone(),
                 None => {
                     tracing::warn!(component_id = %self.id, "no plugin config found, returning default");
                     PluginConfig::default()
