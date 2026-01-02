@@ -1,0 +1,12 @@
+[package]
+name = "long-running-test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+wash-runtime = { version = "0.1.0", path = "../../crates/wash-runtime" }
+wit-bindgen = "0.47.0"
+gag = "1.0.0"
+anyhow = "1.0.100"
+bytes = "1.10.1"
