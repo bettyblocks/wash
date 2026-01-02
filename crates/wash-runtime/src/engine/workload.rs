@@ -630,24 +630,26 @@ impl ResolvedWorkload {
         for (import_name, import_item) in imports.into_iter() {
             match import_item {
                 ComponentItem::ComponentInstance(import_instance_ty) => {
-                    // info!(name = import_name, "processing component instance import");
+                    info!(name = import_name, "processing component instance import");
                     let mut all_components = self.components.write().await;
                     let (plugin_component, instance_idx) = {
                         let Some(exporter_component) = interface_map.get(import_name) else {
                             // TODO: error because unsatisfied import, if there's no available
                             // export then it's an unresolvable workload
-                            error!(
-                                name = import_name,
-                                "import not found in component exports, skipping"
-                            );
+                            if !import_name.contains("wasi") {
+                                error!(
+                                    name = import_name,
+                                    "import not found in component exports, skipping"
+                                );
+                            }
                             continue;
                         };
                         let Some(plugin_component) = all_components.get_mut(exporter_component)
                         else {
-                            //      warn!(
-                            //          name = import_name,
-                            //          "exporting component not found in all components, skipping"
-                            //      );
+                            warn!(
+                                name = import_name,
+                                "exporting component not found in all components, skipping"
+                            );
                             continue;
                         };
                         let Some((ComponentItem::ComponentInstance(_), idx)) = plugin_component
@@ -660,7 +662,7 @@ impl ResolvedWorkload {
                         };
                         (plugin_component, idx)
                     };
-                    // info!(name = import_name, index = ?instance_idx, "found import at index");
+                    info!(name = import_name, index = ?instance_idx, "found import at index");
 
                     // Preinstantiate the plugin instance so we can use it later
                     let pre = plugin_component
@@ -670,7 +672,7 @@ impl ResolvedWorkload {
                     let mut linker_instance = match linker.instance(import_name) {
                         Ok(i) => i,
                         Err(e) => {
-                            //     warn!(name = import_name, error = %e, "error finding instance in linker, skipping");
+                            warn!(name = import_name, error = %e, "error finding instance in linker, skipping");
                             continue;
                         }
                     };
@@ -699,11 +701,11 @@ impl ResolvedWorkload {
                                     matches!(item, ComponentItem::ComponentFunc(..)),
                                     "expected function export, found other"
                                 );
-                                //        info!(
-                                //            name = import_name,
-                                //            fn_name = export_name,
-                                //            "linking function import"
-                                //        );
+                                info!(
+                                    name = import_name,
+                                    fn_name = export_name,
+                                    "linking function import"
+                                );
                                 let import_name: Arc<str> = import_name.into();
                                 let export_name: Arc<str> = export_name.into();
                                 let pre = pre.clone();
@@ -714,9 +716,10 @@ impl ResolvedWorkload {
                                     .func_new_async(
                                         &export_name.clone(),
                                         move |mut store, params, results| {
-                                            //                    info!(
-                                            //                        "Calling this export name: {}", export_name.clone()
-                                            //                    );
+                                            info!(
+                                                "Calling this export name: {}",
+                                                export_name.clone()
+                                            );
                                             // TODO(#103): some kind of store data hashing mechanism
                                             // to detect a diff store to drop the old one
                                             let import_name = import_name.clone();
@@ -724,28 +727,19 @@ impl ResolvedWorkload {
                                             let pre = pre.clone();
                                             let instance = instance.clone();
                                             Box::new(async move {
-                                                //                        info!(
-                                                //                            "Into the new box: {}", export_name.clone()
-                                                //                        );
+                                                                        info!(
+                                                                            "Into the new box: {}", export_name.clone()
+                                                                      );
                                                 let existing_instance = instance.read().await;
                                                 let store_id = store.data().id.clone();
 
-                                                //                        info!(
-                                                //                            "Before creating the instance: {}", export_name.clone()
-                                                //                        );
-                                                let instance = if let Some((id, instance)) =
-                                                    existing_instance.clone()
-                                                    && id == store_id
-                                                {
-                                                    //                            info!(
-                                                    //                                "Dropping existing instance: {}", export_name.clone()
-                                                    //                            );
-                                                    drop(existing_instance);
-                                                    instance
-                                                } else {
-                                                    //                            info!(
-                                                    //                                "Creating new instance and dropping existing instance: {}", export_name.clone()
-                                                    //                            );
+                                                                        info!(
+                                                                            "Before creating the instance: {}", export_name.clone()
+                                                                        );
+                                                let instance = {
+                                                                                info!(
+                                                                                    "Creating new instance and dropping existing instance: {}", export_name.clone()
+                                                                                );
                                                     // Likely unnecessary, but explicit drop of the read lock
                                                     let new_instance =
                                                         pre.instantiate_async(&mut store).await?;
@@ -755,19 +749,19 @@ impl ResolvedWorkload {
                                                     new_instance
                                                 };
 
-                                                //                        info!(
-                                                //                                "Starting by getting the function from the instance: {}", export_name.clone()
-                                                //                            );
+                                                                        info!(
+                                                                                "Starting by getting the function from the instance: {}", export_name.clone()
+                                                                            );
 
                                                 let eng = store.engine().clone();
                                                 let comp = pre.component();
-                                                //                        info!(
-                                                //                            "Exported components: {:?}",
-                                                //                            comp.component_type().exports(&eng).collect::<Vec<_>>()
-                                                //                    );info!(
-                                                //                            "Imported components: {:?}",
-                                                //                            comp.component_type().imports(&eng).collect::<Vec<_>>()
-                                                //                    );
+                                                                        info!(
+                                                                            "Exported components: {:?}",
+                                                                            comp.component_type().exports(&eng).collect::<Vec<_>>()
+                                                                    );info!(
+                                                                            "Imported components: {:?}",
+                                                                            comp.component_type().imports(&eng).collect::<Vec<_>>()
+                                                                    );
 
                                                 let func = instance
                                                     .get_func(&mut store, func_idx)
@@ -781,12 +775,12 @@ impl ResolvedWorkload {
                                                     }
                                                 };
 
-                                                //                        info!(
-                                                //                            name = %import_name,
-                                                //                            fn_name = %export_name,
-                                                //                            ?params,
-                                                //                            "lowering params"
-                                                //                        );
+                                                                        info!(
+                                                                            name = %import_name,
+                                                                            fn_name = %export_name,
+                                                                            ?params,
+                                                                            "lowering params"
+                                                                        );
                                                 let mut params_buf =
                                                     Vec::with_capacity(params.len());
                                                 for v in params {
@@ -795,12 +789,12 @@ impl ResolvedWorkload {
                                                             "failed to lower parameter",
                                                         )?);
                                                 }
-                                                //                        info!(
-                                                //                            name = %import_name,
-                                                //                            fn_name = %export_name,
-                                                //                            ?params_buf,
-                                                //                            "invoking dynamic export"
-                                                //                        );
+                                                                        info!(
+                                                                            name = %import_name,
+                                                                            fn_name = %export_name,
+                                                                            ?params_buf,
+                                                                            "invoking dynamic export"
+                                                                        );
 
                                                 let mut results_buf =
                                                     vec![Val::Bool(false); results.len()];
@@ -821,23 +815,22 @@ impl ResolvedWorkload {
                                                     "function call timed out after 30 seconds",
                                                 )?
                                                 .context("failed to call function")?;
-                                                //
-                                                //                                                info!(
-                                                //                                                    name = %import_name,
-                                                //                                                    fn_name = %export_name,
-                                                //                                                    ?results_buf,
-                                                //                                                    "lifting results"
-                                                //                                                );
+                                                                                                info!(
+                                                                                                    name = %import_name,
+                                                                                                    fn_name = %export_name,
+                                                                                                    ?results_buf,
+                                                                                                    "lifting results"
+                                                                                                );
                                                 for (i, v) in results_buf.into_iter().enumerate() {
                                                     results[i] = lift(&mut store, v)
                                                         .context("failed to lift result")?;
                                                 }
-                                                //                                                info!(
-                                                //                                                    name = %import_name,
-                                                //                                                    fn_name = %export_name,
-                                                //                                                    ?results,
-                                                //                                                    "invoked dynamic export"
-                                                //                                                );
+                                               info!(
+                                                                                                   name = %import_name,
+                                                                                                   fn_name = %export_name,
+                                                                                                   ?results,
+                                                                                                   "invoked dynamic export"
+                                                                                               );
 
                                                 func.post_return_async(&mut store)
                                                     .await
@@ -889,7 +882,7 @@ impl ResolvedWorkload {
                                     continue;
                                 }
 
-                                //                               info!(name = import_name, resource = export_name, ty = ?resource_ty, "linking resource import");
+                                info!(name = import_name, resource = export_name, ty = ?resource_ty, "linking resource import");
 
                                 linker_instance
                                         .resource(export_name, ResourceType::host::<ResourceAny>(), |_, _| Ok(()))
