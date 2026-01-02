@@ -5,5 +5,8 @@ interface action  {
 }
 
 world app {
+   import betty-blocks:create/create@0.1.0;
+   import betty-blocks:update/update@0.1.0;
+
    export action;
 }
