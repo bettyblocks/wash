@@ -23,24 +23,19 @@ use bindings::wasmcloud::runtime::convert_html_to_pdf::Host;
 pub struct ConvertHtmlToPdf;
 
 impl Host for Ctx {
-    // TODO: Check implementation.
-    async fn convert_html_to_pdf(&mut self, html: String) -> anyhow::Result<Result<Vec<u8>, String>> {
+    async fn convert_html_to_pdf(&mut self, html: String) -> anyhow::Result<Vec<u8>> {
         let mut child =
             std::process::Command::new("wkhtmltopdf")
                 .args(["-", "-"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .spawn()
-                .expect("Failed to execute process");
+                .spawn()?;
 
-        let mut stdin = child.stdin.take().expect("Failed to open stdin");
-        std::thread::spawn(move || {
-            stdin.write_all(html.as_bytes()).expect("Failed to write to stdin");
-        });
+        let mut stdin = child.stdin.take()?;
+        stdin.write_all(html.as_bytes())?;
 
-        let output = child.wait_with_output().expect("Failed to read stdout");
+        let output = child.wait_with_output()?;
 
-        // TODO: Surely we can use one error.
         Ok(Ok(output.stdout.into()))
     }
 }
@@ -68,11 +63,6 @@ impl HostPlugin for ConvertHtmlToPdf {
             imports: HashSet::new(),
             exports,
         }
-            /*
-interface convert-html-to-pdf {
-    convert-html-to-pdf: func(html: string) -> result<list<u8>, string>;
-}
-            */
     }
 
     async fn on_component_bind(

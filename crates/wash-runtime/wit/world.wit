@@ -29,3 +29,11 @@ world messaging {
     import wasmcloud:messaging/consumer@0.2.0;
     export wasmcloud:messaging/handler@0.2.0;
 }
+
+interface convert-html-to-pdf {
+    convert-html-to-pdf: func(html: string) -> list<u8>;
+}
+
+world convert-html-to-pdf-world {
+    import convert-html-to-pdf;
+}

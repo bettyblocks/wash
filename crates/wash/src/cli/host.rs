@@ -88,6 +88,9 @@ impl CliCommand for HostCommand {
                     data_nats_client.clone(),
                 ),
             ))?
+            .with_plugin(Arc::new(
+                wash_runtime::washlet::plugins::convert_html_to_pdf::ConvertHtmlToPdf {}
+            ))?
             .with_grpc(HashMap::new());
 
         if let Some(host_name) = &self.host_name {

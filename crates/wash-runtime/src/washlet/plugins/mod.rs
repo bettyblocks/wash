@@ -4,6 +4,8 @@ pub mod wasi_keyvalue;
 pub mod wasi_logging;
 pub mod wasmcloud_messaging;
 
+pub mod convert_html_to_pdf;
+
 use std::collections::HashMap;
 use std::future::Future;
 
