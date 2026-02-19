@@ -31,7 +31,7 @@ world messaging {
 }
 
 interface convert-html-to-pdf {
-    convert-html-to-pdf: func(html: string) -> list<u8>;
+    convert-html-to-pdf: func(html: string) -> result<list<u8>, string>;
 }
 
 world convert-html-to-pdf-world {

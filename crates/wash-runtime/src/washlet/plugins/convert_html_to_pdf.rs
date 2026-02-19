@@ -23,20 +23,22 @@ use bindings::wasmcloud::runtime::convert_html_to_pdf::Host;
 pub struct ConvertHtmlToPdf;
 
 impl Host for Ctx {
-    async fn convert_html_to_pdf(&mut self, html: String) -> anyhow::Result<Vec<u8>> {
+    // wasmCloud wraps host plugins with an anyhow::Result. We still want to catch error cases, so
+    // this function returns errors into the inner Result.
+    async fn convert_html_to_pdf(&mut self, html: String) -> anyhow::Result<Result<Vec<u8>, String>> {
         let mut child =
             std::process::Command::new("wkhtmltopdf")
                 .args(["-", "-"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .spawn()?;
+                .spawn().map_err(|error| Ok(error))?;
 
-        let mut stdin = child.stdin.take()?;
-        stdin.write_all(html.as_bytes())?;
+        let mut stdin = child.stdin.take().map_err(|error| Ok(error))?;
+        stdin.write_all(html.as_bytes()).map_err(|error| Ok(error))?;
 
-        let output = child.wait_with_output()?;
+        let output = child.wait_with_output().map_err(|error| Ok(error))?;
 
-        Ok(Ok(output.stdout.into()))
+        Ok(output.stdout.into().map_err(|error| Ok(error)))
     }
 }
 
