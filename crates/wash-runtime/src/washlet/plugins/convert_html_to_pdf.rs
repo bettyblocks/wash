@@ -38,7 +38,7 @@ impl Host for Ctx {
 
         let output = child.wait_with_output().map_err(|error| Ok(error))?;
 
-        Ok(output.stdout.into().map_err(|error| Ok(error)))
+        Ok(Ok(output.stdout.into().map_err(|error| Ok(error))))
     }
 }
 
