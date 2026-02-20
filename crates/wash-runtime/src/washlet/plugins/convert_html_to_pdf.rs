@@ -4,6 +4,7 @@ use std::{
 };
 use std::process::Stdio;
 use wasmtime::component::HasSelf;
+use anyhow::Context;
 
 use crate::{
     engine::{ctx::Ctx, workload::WorkloadComponent},
@@ -30,13 +31,13 @@ impl Host for Ctx {
                 .args(["-", "-"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .spawn()
-                .expect("Failed to execute process");
+                .spawn()?;
 
-        let mut stdin = child.stdin.take().expect("Failed to open stdin");
-        stdin.write_all(html.as_bytes()).expect("Failed to write to stdin");
+        let stdin = child.stdin.as_mut()
+                .context("Could not write HTML into dependency to convert to PDF")?;
+        stdin.write_all(html.as_bytes())?;
 
-        let output = child.wait_with_output().expect("Failed to read stdout");
+        let output = child.wait_with_output()?;
 
         Ok(Ok(output.stdout.into()))
     }
