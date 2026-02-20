@@ -7,6 +7,10 @@ ENV RUST_BACKTRACE=1
 # tools
 USER root
 RUN apk --no-cache add protoc protobuf protobuf-dev
+
+# Add chromium dependency for convert HTML to PDF host plugin
+RUN apk --no-cache add chromium
+
 USER nonroot
 
 # dependencies cache
@@ -19,10 +23,6 @@ COPY . .
 
 # build static binary
 RUN cargo build --release --bin wash
-
-# Add wkhtmltopdf dependency for convert HTML to PDF host plugin
-# TODO: Does this work without any further deps? Like display buffers.
-RUN apk add chromium
 
 # Release image
 FROM cgr.dev/chainguard/wolfi-base
