@@ -32,33 +32,7 @@ impl Host for Ctx {
         tab.navigate_to(format!("data:text/html;base64,{}", base64_encoded_html).as_str())?;
         tab.wait_until_navigated()?;
 
-        Ok(Ok(
-                /*
-            tab.print_to_pdf(Some(
-                    PrintToPdfOptions {
-                        landscape: None,
-                        display_header_footer: Some(true),
-                        print_background: Some(true),
-                        scale: None,
-                        paper_width: None,
-                        paper_height: None,
-                        margin_top: None,
-                        margin_bottom: None,
-                        margin_left: None,
-                        margin_right: None,
-                        page_ranges: Some(String::from("1-10")),
-                        ignore_invalid_page_ranges: None,
-                        header_template: None,
-                        footer_template: None,
-                        prefer_css_page_size: None,
-                        transfer_mode: None,
-                        generate_document_outline: None,
-                        generate_tagged_pdf: None,
-                    })
-            )?
-                */
-            tab.print_to_pdf(None)?
-        ))
+        Ok(Ok(tab.print_to_pdf(None)?))
     }
 }
 
