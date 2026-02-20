@@ -1,10 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    io::Write,
 };
-use std::process::Stdio;
 use wasmtime::component::HasSelf;
-use anyhow::Context;
+use headless_chrome::{Browser, types::PrintToPdfOptions};
+use base64::Engine;
 
 use crate::{
     engine::{ctx::Ctx, workload::WorkloadComponent},
@@ -26,20 +25,40 @@ pub struct ConvertHtmlToPdf;
 impl Host for Ctx {
     // wasmCloud already wraps our function in an anyhow::Result.
     async fn convert_html_to_pdf(&mut self, html: String) -> anyhow::Result<Result<Vec<u8>, String>> {
-        let mut child =
-            std::process::Command::new("wkhtmltopdf")
-                .args(["-", "-"])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()?;
+        let browser = Browser::default()?;
+        let tab = browser.new_tab()?;
 
-        let stdin = child.stdin.as_mut()
-                .context("Could not write HTML into dependency to convert to PDF")?;
-        stdin.write_all(html.as_bytes())?;
+        let base64_encoded_html = base64::engine::general_purpose::STANDARD.encode(html.as_bytes());
+        tab.navigate_to(format!("data:text/html;base64,{}", base64_encoded_html).as_str())?;
+        tab.wait_until_navigated()?;
 
-        let output = child.wait_with_output()?;
-
-        Ok(Ok(output.stdout.into()))
+        Ok(Ok(
+                /*
+            tab.print_to_pdf(Some(
+                    PrintToPdfOptions {
+                        landscape: None,
+                        display_header_footer: Some(true),
+                        print_background: Some(true),
+                        scale: None,
+                        paper_width: None,
+                        paper_height: None,
+                        margin_top: None,
+                        margin_bottom: None,
+                        margin_left: None,
+                        margin_right: None,
+                        page_ranges: Some(String::from("1-10")),
+                        ignore_invalid_page_ranges: None,
+                        header_template: None,
+                        footer_template: None,
+                        prefer_css_page_size: None,
+                        transfer_mode: None,
+                        generate_document_outline: None,
+                        generate_tagged_pdf: None,
+                    })
+            )?
+                */
+            tab.print_to_pdf(None)?
+        ))
     }
 }
 
